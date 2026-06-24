@@ -9,18 +9,26 @@ window.onload = function() {
         masterGain: null,
         buffers: {},          // decoded AudioBuffers keyed by type
         files: {
-            '25':  'assets/sounds/gatling_25mm.mp3',  // 25mm Gatling (rapid)
-            '40':  'assets/sounds/bofors_40mm.ogg',   // 40mm Bofors cannon
-            '105': 'assets/sounds/howitzer_105mm.ogg',// 105mm Howitzer
-            'exp': 'assets/sounds/explosion.ogg'      // generic explosion / nuke
+            '25':       'assets/sounds/gatling_25mm.mp3',    // 25mm Gatling (rapid)
+            '40':       'assets/sounds/bofors_40mm.ogg',     // 40mm Bofors cannon
+            '105':      'assets/sounds/howitzer_105mm.ogg',  // 105mm Howitzer
+            'exp':      'assets/sounds/explosion.ogg',       // generic explosion / nuke
+            'rifle':    'assets/sounds/infantry_rifle.wav',  // friendly infantry rifle
+            'collapse': 'assets/sounds/building_collapse.ogg',// building falling apart
+            'heli':     'assets/sounds/heli_rotor.mp3'        // looping helicopter rotor
         },
-        // Per-type playback volume and a cap to stop rapid-fire shots piling up.
+        // Per-type playback volume, a cap to stop rapid-fire shots piling up, and
+        // an optional minInterval (seconds) to throttle mass-triggered one-shots.
         config: {
-            '25':  { vol: 0.35, maxDur: 0.18 },
-            '40':  { vol: 0.70, maxDur: 0.35 },
-            '105': { vol: 1.00, maxDur: null },
-            'exp': { vol: 0.90, maxDur: null }
+            '25':       { vol: 0.35, maxDur: 0.18 },
+            '40':       { vol: 0.70, maxDur: 0.35 },
+            '105':      { vol: 1.00, maxDur: null },
+            'exp':      { vol: 0.90, maxDur: null },
+            'rifle':    { vol: 0.45, maxDur: 0.30 },
+            'collapse': { vol: 0.80, maxDur: null, minInterval: 0.12 }
         },
+        lastPlay: {},         // type -> ctx time of last play (for minInterval)
+        loops: {},            // type -> { src, gain, count, vol } for looping sounds
         init: function() {
             if (!this.ctx) {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -36,7 +44,10 @@ window.onload = function() {
                 fetch(this.files[type])
                     .then(res => res.arrayBuffer())
                     .then(data => this.ctx.decodeAudioData(data))
-                    .then(decoded => { this.buffers[type] = decoded; })
+                    .then(decoded => {
+                        this.buffers[type] = decoded;
+                        this._ensureLoop(type); // start any loop that was requested before load
+                    })
                     .catch(err => console.warn('AudioSys: failed to load', type, err));
             });
         },
@@ -47,6 +58,13 @@ window.onload = function() {
 
             const cfg = this.config[type] || { vol: 1.0, maxDur: null };
             const now = this.ctx.currentTime;
+
+            // Throttle one-shots that can be triggered en masse (e.g. many
+            // buildings collapsing at once) so they don't stack into noise.
+            if (cfg.minInterval) {
+                if (this.lastPlay[type] && now - this.lastPlay[type] < cfg.minInterval) return;
+                this.lastPlay[type] = now;
+            }
 
             const src = this.ctx.createBufferSource();
             src.buffer = buffer;
@@ -72,6 +90,52 @@ window.onload = function() {
                 gain.gain.exponentialRampToValueAtTime(0.001, now + cfg.maxDur + 0.04);
                 src.stop(now + cfg.maxDur + 0.05);
             }
+        },
+        // --- Looping sounds (e.g. helicopter rotor) ---
+        // Reference counted: each active source bumps the count and the loop
+        // gets a touch louder; the loop stops once the count returns to zero.
+        startLoop: function(type, vol) {
+            if (!this.ctx) return;
+            let L = this.loops[type];
+            if (!L) L = this.loops[type] = { src: null, gain: null, count: 0, vol: vol || 0.4 };
+            L.count++;
+            this._ensureLoop(type);
+        },
+        stopLoop: function(type) {
+            const L = this.loops[type];
+            if (!L) return;
+            L.count = Math.max(0, L.count - 1);
+            if (L.count > 0 && L.gain) {
+                L.gain.gain.value = Math.min(0.75, L.vol * (1 + 0.25 * (L.count - 1)));
+            } else if (L.count === 0 && L.src) {
+                try { L.src.stop(); } catch (e) {}
+                L.src.disconnect(); L.gain.disconnect();
+                L.src = null; L.gain = null;
+            }
+        },
+        stopAllLoops: function() {
+            Object.keys(this.loops).forEach(type => {
+                const L = this.loops[type];
+                if (L.src) { try { L.src.stop(); } catch (e) {} L.src.disconnect(); L.gain.disconnect(); }
+                L.src = null; L.gain = null; L.count = 0;
+            });
+        },
+        // Starts (or restarts) the underlying looping source if one is wanted
+        // and the buffer is ready. Called again from loadAll once decoded.
+        _ensureLoop: function(type) {
+            const L = this.loops[type];
+            if (!this.ctx || !L || L.count <= 0 || L.src) return;
+            const buffer = this.buffers[type];
+            if (!buffer) return; // buffer not decoded yet; loadAll will retry
+            const src = this.ctx.createBufferSource();
+            src.buffer = buffer;
+            src.loop = true;
+            const gain = this.ctx.createGain();
+            gain.gain.value = Math.min(0.75, L.vol * (1 + 0.25 * (L.count - 1)));
+            src.connect(gain);
+            gain.connect(this.masterGain);
+            src.start();
+            L.src = src; L.gain = gain;
         }
     };
 
@@ -199,6 +263,7 @@ window.onload = function() {
     function destroyBuilding(b) {
         if (!b.active) return;
         b.active = false;
+        AudioSys.playNoise(1.0, 'collapse');
         for(let j=0; j<8; j++) {
             const sm = new THREE.Mesh(new THREE.SphereGeometry(10+Math.random()*10, 8, 8), matSmoke);
             sm.position.copy(b.mesh.position);
@@ -308,8 +373,11 @@ window.onload = function() {
     function togglePause() {
         if(!gameState.isRunning || gameState.isGameOver || gameState.nukeActive) return;
         gameState.isPaused = !gameState.isPaused;
-        if(gameState.isPaused) ui.pauseMenu.classList.remove('hidden');
-        else { ui.pauseMenu.classList.add('hidden'); lastTime = performance.now(); }
+        if(gameState.isPaused) {
+            ui.pauseMenu.classList.remove('hidden');
+            if (AudioSys.ctx) AudioSys.ctx.suspend(); // pause the heli rotor loop too
+        }
+        else { ui.pauseMenu.classList.add('hidden'); lastTime = performance.now(); if (AudioSys.ctx) AudioSys.ctx.resume(); }
     }
 
     function updatePoints(amount) {
@@ -362,6 +430,7 @@ window.onload = function() {
                 mesh, orbit: Math.random() * Math.PI * 2, state: 'cooldown',
                 timer: 3.0, rocketTimer: 5.0, burstCount: 0, targetZombie: null
             });
+            AudioSys.startLoop('heli', 0.3);
         }
     }
 
@@ -544,6 +613,7 @@ window.onload = function() {
                 const hPos = supportState.helis[i].mesh.position.clone();
                 scene.remove(supportState.helis[i].mesh);
                 supportState.helis.splice(i, 1);
+                AudioSys.stopLoop('heli');
 
                 const sExp = new THREE.Mesh(new THREE.SphereGeometry(15, 16, 16), matExplosion);
                 sExp.position.copy(hPos); scene.add(sExp);
@@ -578,6 +648,7 @@ window.onload = function() {
 
         if (bunkerStats.hp <= 0 && !gameState.isGameOver && !gameState.nukeActive) {
             gameState.isGameOver = true;
+            AudioSys.stopAllLoops(); // cut the helicopter rotor on death
             ui.gameOverMenu.classList.remove('hidden');
         }
     }
@@ -843,7 +914,7 @@ window.onload = function() {
                     if (inf.targetZombie) {
                         createTracer(inf.mesh.position, inf.targetZombie.mesh.position);
                         inf.targetZombie.hp -= 20;
-                        AudioSys.playNoise(0.1, '40');
+                        AudioSys.playNoise(0.1, 'rifle');
                         inf.mesh.lookAt(inf.targetZombie.mesh.position.x, inf.mesh.position.y, inf.targetZombie.mesh.position.z);
                     }
 
@@ -1035,6 +1106,7 @@ window.onload = function() {
         tracers.forEach(t => scene.remove(t.mesh));
         supportState.mines = []; supportState.infantry = []; supportState.helis = [];
         supportState.snipers = 0; tracers = [];
+        AudioSys.stopAllLoops(); // silence any helicopter rotor loops from the previous run
 
         if(nukeObj) {
             if(nukeObj.stem) scene.remove(nukeObj.stem);
