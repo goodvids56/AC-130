@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AC-130 3D Zombie Gunship</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Include Three.js for 3D rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="white-flash"></div>
+    <canvas id="webgl-canvas"></canvas>
+    <div id="crt-overlay"></div>
+    <div id="noise-overlay"></div>
+
+    <div id="hud">
+        <div id="top-left" class="hud-element">
+            TGP: NARR<br>
+            <span id="coord-display">N 34° 51' 42" E 44° 4' 12"</span>
+        </div>
+        <div id="top-right" class="hud-element">
+            WHOT<br>LSS: ARM
+        </div>
+
+        <div id="bunker-health-container" class="hud-element">
+            CHURCH INTEGRITY
+            <div id="bunker-health-bar"><div id="bunker-health-fill"></div></div>
+        </div>
+
+        <div id="bottom-left" class="hud-element">
+            KILLS: <span id="kill-count">0</span><br>
+            WAVE: <span id="wave-count">1</span><br>
+            PTS: <span id="pts-count">0</span>
+        </div>
+        <div id="bottom-right" class="hud-element">
+            <span id="weapon-name">25mm GATLING</span><br>RDY
+        </div>
+    </div>
+
+    <canvas id="crosshair"></canvas>
+
+    <button id="btn-pause">PAUSE</button>
+
+    <div id="support-panel">
+        <button class="support-btn" id="btn-mines" data-cost="10" data-type="mines">MINES [10 PTS]</button>
+        <button class="support-btn" id="btn-inf" data-cost="20" data-type="infantry">INFANTRY [20 PTS]</button>
+        <button class="support-btn" id="btn-sniper" data-cost="30" data-type="sniper">SNIPER [30 PTS]</button>
+        <button class="support-btn" id="btn-heli" data-cost="50" data-type="heli">HELO [50 PTS]</button>
+        <button class="support-btn nuke-btn" id="btn-nuke" data-cost="500" data-type="nuke">ATOM BOMB [500 PTS]</button>
+    </div>
+
+    <div id="weapon-selector">
+        <button class="weapon-btn active" data-index="0">25mm <div class="cooldown-bar" id="cd-0"></div></button>
+        <button class="weapon-btn" data-index="1">40mm <div class="cooldown-bar" id="cd-1"></div></button>
+        <button class="weapon-btn" data-index="2">105mm <div class="cooldown-bar" id="cd-2"></div></button>
+    </div>
+
+    <!-- Start Menu -->
+    <div id="start-menu" class="overlay-menu">
+        <div class="menu-title">AC-130 ZOMBIE GUNSHIP</div>
+        <div class="menu-desc">Provide close air support. Protect the church.</div>
+        <button class="action-btn" id="start-btn">COMMENCE OPERATION</button>
+    </div>
+
+    <!-- Pause Menu -->
+    <div id="pause-menu" class="overlay-menu hidden">
+        <div class="menu-title">MISSION PAUSED</div>
+        <button class="action-btn" id="resume-btn">RESUME</button>
+    </div>
+
+    <!-- Game Over Menu -->
+    <div id="game-over-menu" class="overlay-menu hidden">
+        <div class="menu-title">MISSION FAILED</div>
+        <div class="menu-desc">The church has been overrun.</div>
+        <button class="action-btn" id="restart-btn">RESTART MISSION</button>
+    </div>
+
+    <!-- Cinematic Victory Screen -->
+    <div id="victory-screen" class="hidden">
+        <h1>VICTORY IS FOR THE HUMANS!</h1>
+        <button class="action-btn" id="replay-btn">PLAY AGAIN</button>
+    </div>
+
+    <!-- Cinematic Bars -->
+    <div id="cinematic-top" class="cinematic-bar"></div>
+    <div id="cinematic-bottom" class="cinematic-bar"></div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
