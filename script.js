@@ -16,8 +16,9 @@ window.onload = function() {
             'rifle':    'assets/sounds/infantry_rifle.wav',  // friendly infantry rifle
             'collapse': 'assets/sounds/building_collapse.ogg',// building falling apart
             'heli':     'assets/sounds/heli_rotor.mp3',       // looping helicopter rotor
-            'zombie':   ['assets/sounds/zombie_groan1.ogg',   // zombie groans (random variant)
-                         'assets/sounds/zombie_groan2.ogg']
+            'zombie':   ['assets/sounds/zombie_groan1.ogg',   // ambient zombie groans (random variant)
+                         'assets/sounds/zombie_groan2.ogg'],
+            'pain':     'assets/sounds/zombie_pain.ogg'       // zombie hit / death grunt
         },
         // Per-type playback volume, a cap to stop rapid-fire shots piling up, and
         // an optional minInterval (seconds) to throttle mass-triggered one-shots.
@@ -28,7 +29,8 @@ window.onload = function() {
             'exp':      { vol: 0.90, maxDur: null },
             'rifle':    { vol: 0.45, maxDur: 0.30 },
             'collapse': { vol: 0.80, maxDur: null, minInterval: 0.12 },
-            'zombie':   { vol: 0.55, maxDur: null, minInterval: 0.5 }
+            'zombie':   { vol: 0.55, maxDur: null, minInterval: 0.5 },
+            'pain':     { vol: 0.50, maxDur: 0.5, minInterval: 0.1 }
         },
         lastPlay: {},         // type -> ctx time of last play (for minInterval)
         loops: {},            // type -> { src, gain, count, vol } for looping sounds
@@ -590,11 +592,11 @@ window.onload = function() {
             zombies.push({
                 mesh: mesh, type: typeKey, hp: zConf.hp * hpScaling, maxHp: zConf.hp * hpScaling,
                 speed: zConf.speed * (1 + gameState.wave * 0.05), wobbleOffset: Math.random() * Math.PI * 2,
-                rpgTimer: 3.0 + Math.random() * 3.0
+                rpgTimer: 3.0 + Math.random() * 3.0,
+                lastHp: zConf.hp * hpScaling,       // for hit detection
+                groanTimer: 2.0 + Math.random() * 5.0 // staggered ambient groans
             });
         }
-
-        AudioSys.playNoise(1.0, 'zombie'); // groan as the horde appears (throttled in AudioSys)
     }
 
     function triggerExplosion(pos, radius, damage, shake) {
@@ -1024,6 +1026,7 @@ window.onload = function() {
 
                 if (z.hp <= 0) {
                     if (z.type === 'bloater') triggerExplosion(z.mesh.position, 35, 100, 0);
+                    AudioSys.playNoise(0.5, 'pain'); // death grunt
                     scene.remove(z.mesh);
                     zombies.splice(i, 1);
                     gameState.kills++;
@@ -1033,7 +1036,18 @@ window.onload = function() {
                     continue;
                 }
 
+                // Grunt when the zombie has taken damage since last frame.
+                if (z.hp < z.lastHp) AudioSys.playNoise(0.5, 'pain');
+                z.lastHp = z.hp;
+
                 const dist = z.mesh.position.length();
+
+                // Ambient groans from zombies that have closed in on the church.
+                z.groanTimer -= dt;
+                if (z.groanTimer <= 0) {
+                    if (dist < 140) AudioSys.playNoise(1.0, 'zombie');
+                    z.groanTimer = 4.0 + Math.random() * 5.0;
+                }
 
                 if (z.type === 'bomber' && dist < bunkerStats.radius + 15) {
                     triggerExplosion(z.mesh.position, 30, 80, 0.5);

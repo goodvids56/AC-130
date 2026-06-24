@@ -12,7 +12,8 @@ effects. Sources and licenses below.
 | `infantry_rifle.wav` | Friendly infantry rifle fire | "Gunshot Sounds" (`sks.wav`) by `Vincent Sevedge` (Tabasco), OpenGameArt — https://opengameart.org/content/gunshot-sounds | CC-BY 3.0 |
 | `heli_rotor.mp3` | Helicopter rotor (looping) | "Helicopter Sounds" by `aquinn`, OpenGameArt — https://opengameart.org/content/helicopter-sounds | CC0 (Public Domain) |
 | `building_collapse.ogg` | Buildings falling apart | "75 CC0 breaking / falling / hit sfx" (`bfh1_rock_breaking_02`) by `rubberduck`, OpenGameArt — https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx | CC0 (Public Domain) |
-| `zombie_groan1.ogg`, `zombie_groan2.ogg` | Zombie groans (random) | "Zombie noises and moans" (`zombienoise3`, `fastzombie1`) by `ianzazz`, OpenGameArt — https://opengameart.org/content/zombie-noises-and-moans | CC0 (Public Domain) |
+| `zombie_groan1.ogg`, `zombie_groan2.ogg` | Ambient zombie groans (random) | "Zombie noises and moans" (`zombienoise3`, `fastzombie1`) by `ianzazz`, OpenGameArt — https://opengameart.org/content/zombie-noises-and-moans | CC0 (Public Domain) |
+| `zombie_pain.ogg` | Zombie hit / death grunt | "Zombie Pain" by `Vinrax`, OpenGameArt — https://opengameart.org/content/zombie-pain | CC0 (Public Domain) |
 
 ## Attribution notes
 
