@@ -1,51 +1,76 @@
 window.onload = function() {
 
     // --- Audio System ---
+    // Plays real recorded sound effects from assets/sounds/ via the Web Audio API.
+    // The playNoise(duration, type) signature is kept so existing call sites are
+    // unchanged: `type` selects the sample, `duration` shapes rapid-fire/big booms.
     const AudioSys = {
         ctx: null,
+        masterGain: null,
+        buffers: {},          // decoded AudioBuffers keyed by type
+        files: {
+            '25':  'assets/sounds/gatling_25mm.mp3',  // 25mm Gatling (rapid)
+            '40':  'assets/sounds/bofors_40mm.ogg',   // 40mm Bofors cannon
+            '105': 'assets/sounds/howitzer_105mm.ogg',// 105mm Howitzer
+            'exp': 'assets/sounds/explosion.ogg'      // generic explosion / nuke
+        },
+        // Per-type playback volume and a cap to stop rapid-fire shots piling up.
+        config: {
+            '25':  { vol: 0.35, maxDur: 0.18 },
+            '40':  { vol: 0.70, maxDur: 0.35 },
+            '105': { vol: 1.00, maxDur: null },
+            'exp': { vol: 0.90, maxDur: null }
+        },
         init: function() {
             if (!this.ctx) {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.9;
+                this.masterGain.connect(this.ctx.destination);
+                this.loadAll();
             }
             if (this.ctx.state === 'suspended') this.ctx.resume();
         },
+        loadAll: function() {
+            Object.keys(this.files).forEach(type => {
+                fetch(this.files[type])
+                    .then(res => res.arrayBuffer())
+                    .then(data => this.ctx.decodeAudioData(data))
+                    .then(decoded => { this.buffers[type] = decoded; })
+                    .catch(err => console.warn('AudioSys: failed to load', type, err));
+            });
+        },
         playNoise: function(duration, type) {
             if (!this.ctx) return;
-            const bufferSize = this.ctx.sampleRate * duration;
-            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-            const data = buffer.getChannelData(0);
-            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            const buffer = this.buffers[type];
+            if (!buffer) return; // sample not decoded yet; stay silent
 
-            const noise = this.ctx.createBufferSource();
-            noise.buffer = buffer;
+            const cfg = this.config[type] || { vol: 1.0, maxDur: null };
+            const now = this.ctx.currentTime;
 
-            const filter = this.ctx.createBiquadFilter();
-            if (type === '105') { filter.type = 'lowpass'; filter.frequency.value = 300; }
-            else if (type === '40') { filter.type = 'lowpass'; filter.frequency.value = 800; }
-            else if (type === 'exp') { filter.type = 'lowpass'; filter.frequency.value = 150; }
-            else { filter.type = 'highpass'; filter.frequency.value = 1000; }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buffer;
 
-            const gainNode = this.ctx.createGain();
-            gainNode.gain.setValueAtTime(type === '25' ? 0.3 : 1, this.ctx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+            const gain = this.ctx.createGain();
+            let vol = cfg.vol;
 
-            noise.connect(filter);
-            filter.connect(gainNode);
-            gainNode.connect(this.ctx.destination);
-            noise.start();
+            // Big explosions (e.g. the atom bomb passes duration ~10) play deeper
+            // and at full volume for a heavier, longer boom.
+            if (type === 'exp' && duration > 3) {
+                src.playbackRate.value = 0.6;
+                vol = 1.0;
+            }
+            gain.gain.setValueAtTime(vol, now);
 
-            if(type === '105' || type === 'exp') {
-                const osc = this.ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
-                const oscGain = this.ctx.createGain();
-                oscGain.gain.setValueAtTime(1, this.ctx.currentTime);
-                oscGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
-                osc.connect(oscGain);
-                oscGain.connect(this.ctx.destination);
-                osc.start();
-                osc.stop(this.ctx.currentTime + duration);
+            src.connect(gain);
+            gain.connect(this.masterGain);
+            src.start(now);
+
+            // Cap rapid-fire weapons so overlapping shots don't turn into mush.
+            if (cfg.maxDur && cfg.maxDur < buffer.duration) {
+                gain.gain.setValueAtTime(vol, now + cfg.maxDur);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + cfg.maxDur + 0.04);
+                src.stop(now + cfg.maxDur + 0.05);
             }
         }
     };
