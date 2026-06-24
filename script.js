@@ -15,7 +15,9 @@ window.onload = function() {
             'exp':      'assets/sounds/explosion.ogg',       // generic explosion / nuke
             'rifle':    'assets/sounds/infantry_rifle.wav',  // friendly infantry rifle
             'collapse': 'assets/sounds/building_collapse.ogg',// building falling apart
-            'heli':     'assets/sounds/heli_rotor.mp3'        // looping helicopter rotor
+            'heli':     'assets/sounds/heli_rotor.mp3',       // looping helicopter rotor
+            'zombie':   ['assets/sounds/zombie_groan1.ogg',   // zombie groans (random variant)
+                         'assets/sounds/zombie_groan2.ogg']
         },
         // Per-type playback volume, a cap to stop rapid-fire shots piling up, and
         // an optional minInterval (seconds) to throttle mass-triggered one-shots.
@@ -25,7 +27,8 @@ window.onload = function() {
             '105':      { vol: 1.00, maxDur: null },
             'exp':      { vol: 0.90, maxDur: null },
             'rifle':    { vol: 0.45, maxDur: 0.30 },
-            'collapse': { vol: 0.80, maxDur: null, minInterval: 0.12 }
+            'collapse': { vol: 0.80, maxDur: null, minInterval: 0.12 },
+            'zombie':   { vol: 0.55, maxDur: null, minInterval: 0.5 }
         },
         lastPlay: {},         // type -> ctx time of last play (for minInterval)
         loops: {},            // type -> { src, gain, count, vol } for looping sounds
@@ -41,19 +44,38 @@ window.onload = function() {
         },
         loadAll: function() {
             Object.keys(this.files).forEach(type => {
-                fetch(this.files[type])
-                    .then(res => res.arrayBuffer())
-                    .then(data => this.ctx.decodeAudioData(data))
-                    .then(decoded => {
-                        this.buffers[type] = decoded;
-                        this._ensureLoop(type); // start any loop that was requested before load
-                    })
-                    .catch(err => console.warn('AudioSys: failed to load', type, err));
+                const entry = this.files[type];
+                if (Array.isArray(entry)) {
+                    // Multiple variants for one type (e.g. zombie groans); buffers[type] is an array.
+                    this.buffers[type] = [];
+                    entry.forEach((url, idx) => {
+                        fetch(url)
+                            .then(res => res.arrayBuffer())
+                            .then(data => this.ctx.decodeAudioData(data))
+                            .then(decoded => { this.buffers[type][idx] = decoded; })
+                            .catch(err => console.warn('AudioSys: failed to load', type, url, err));
+                    });
+                } else {
+                    fetch(entry)
+                        .then(res => res.arrayBuffer())
+                        .then(data => this.ctx.decodeAudioData(data))
+                        .then(decoded => {
+                            this.buffers[type] = decoded;
+                            this._ensureLoop(type); // start any loop requested before load
+                        })
+                        .catch(err => console.warn('AudioSys: failed to load', type, err));
+                }
             });
         },
         playNoise: function(duration, type) {
             if (!this.ctx) return;
-            const buffer = this.buffers[type];
+            let buffer = this.buffers[type];
+            // Pick a random decoded variant when a type has several samples.
+            if (Array.isArray(buffer)) {
+                const ready = buffer.filter(Boolean);
+                if (!ready.length) return;
+                buffer = ready[Math.floor(Math.random() * ready.length)];
+            }
             if (!buffer) return; // sample not decoded yet; stay silent
 
             const cfg = this.config[type] || { vol: 1.0, maxDur: null };
@@ -428,7 +450,8 @@ window.onload = function() {
             scene.add(mesh);
             supportState.helis.push({
                 mesh, orbit: Math.random() * Math.PI * 2, state: 'cooldown',
-                timer: 3.0, rocketTimer: 5.0, burstCount: 0, targetZombie: null
+                timer: 3.0, rocketTimer: 5.0, burstCount: 0, targetZombie: null,
+                life: 30.0 // helicopter leaves after 30 seconds
             });
             AudioSys.startLoop('heli', 0.3);
         }
@@ -570,6 +593,8 @@ window.onload = function() {
                 rpgTimer: 3.0 + Math.random() * 3.0
             });
         }
+
+        AudioSys.playNoise(1.0, 'zombie'); // groan as the horde appears (throttled in AudioSys)
     }
 
     function triggerExplosion(pos, radius, damage, shake) {
@@ -924,7 +949,18 @@ window.onload = function() {
                 }
             });
 
-            supportState.helis.forEach(h => {
+            for (let hi = supportState.helis.length - 1; hi >= 0; hi--) {
+                const h = supportState.helis[hi];
+
+                // Helicopter leaves after its service time is up.
+                h.life -= dt;
+                if (h.life <= 0) {
+                    scene.remove(h.mesh);
+                    supportState.helis.splice(hi, 1);
+                    AudioSys.stopLoop('heli');
+                    continue;
+                }
+
                 h.orbit += dt * 0.5;
                 const hx = Math.cos(h.orbit) * 180;
                 const hz = Math.sin(h.orbit) * 180;
@@ -962,7 +998,7 @@ window.onload = function() {
                     if(h.burstCount <= 0) { h.state = 'cooldown'; h.timer = 3.0; }
                     else { h.timer = 0.1; }
                 }
-            });
+            }
 
             if (supportState.snipers > 0 && now - supportState.lastSniperFire > 2000) {
                 supportState.lastSniperFire = now;
